@@ -13,7 +13,7 @@ from PIL import Image
 from matplotlib import pyplot as plt
 
 
-DEVICE = 'cuda'
+DEVICE = 'cpu'
 
 def load_image(imfile):
     img = np.array(Image.open(imfile)).astype(np.uint8)
