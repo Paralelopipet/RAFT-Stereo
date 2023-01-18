@@ -1,4 +1,4 @@
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageDraw
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2 as cv
@@ -8,9 +8,26 @@ from skimage import filters
 from findpeaks import findpeaks
 from scipy import signal
 
-imfile = "records/scene9/2.png"
-dpfile = "demo_output/scene9.npy"
+def find_rectangle(mask):
+    x0, x1, y0, y1 = -1, -1, -1, -1
+    for it, m in enumerate(mask):
+        if (m>0).any():
+            if y0 == -1:
+                y0 = it
+            y1 = it
+    
+    for it, m in enumerate(mask.T):
+        if (m>0).any():
+            if x0 == -1:
+                x0 = it
+            x1 = it
+    return x0-10, y0-10, x1-x0+20, y1-y0+20
+
+imfile = "records/scene7/2.png"
+dpfile = "demo_output/scene7.npy"
+maskfile = "records/scene7/mask.png"
 img = np.array(Image.open(imfile)).astype(np.uint8)
+mask = np.array(Image.open(maskfile).convert('L')).astype(np.uint8)
 # depth = np.array(Image.open(dpfile))
 h = img.shape[0]
 w = img.shape[1]
@@ -20,50 +37,36 @@ coord_grid = np.stack(np.meshgrid(np.linspace(-1, 1,img.shape[0]), np.linspace(-
 # depth = np.zeros([img.shape[0], img.shape[1]])
 depth = np.load(dpfile)
 depth = depth[0:h,0:w]
-depth = np.abs(depth)
+depth = depth - np.max(depth)
 
-# remove background
+mask = mask.flatten()
+mask[mask<150] = 0
+mask[mask>=150] = 1
 
+mask = mask.reshape(h,w)
 
-# calculate histogram
-hist = np.array(np.histogram(depth.flatten(), bins=100))
-hist[1] = hist[1][:100]
+rect = find_rectangle(mask)
 
-# plot histogram
-plt.figure()
-plt.hist(depth.flatten(), bins = 100)
+# img1 = ImageDraw.Draw((Image.open(maskfile)))
+# img1.rectangle(rect, fill ="#800080", outline ="green")
+# img1 = np.array(img1)
+print(rect)
+
+bgModel = np.zeros((1,65), np.float64)
+fgModel = np.zeros((1,65), np.float64)
+cv.grabCut(img, None, rect,  bgModel,
+	fgModel, iterCount=5, mode=cv.GC_INIT_WITH_RECT)
+mask2 = np.where((mask==2)|(mask==0),0,1).astype('uint8')
+
+img_new = img*mask2[:,:,np.newaxis]
+
+fig, ax = plt.subplots(1,2)
+ax[0] = plt.imshow(mask2)
+ax[1] = plt.imshow(img_new)
 plt.show()
 
-#find peaks in histogram
+mask_int = mask*255
 
-# fp = findpeaks('peak', lookahead=3, interpolate=5)
-# peaks = fp.fit(hist[0])
-# fp.plot()
-# peaks, _ = signal.find_peaks(hist[0],distance=10,wlen=5)
-# initial_points = hist[1][peaks]
-
-
-num_layers = 3#len(peaks)
-
-
-
-# k_means = cluster.KMeans(num_layers,init=initial_points.reshape(-1, 1))
-k_means = cluster.KMeans(num_layers)
-
-k_means.fit(hist[1].reshape(-1, 1))
-
-cluster_id = k_means.labels_
-plt.figure()
-
-boundaries = []
-for ii in np.unique(cluster_id):
-    subset = hist[1][cluster_id==ii]
-    boundaries += [np.max(subset)]
-boundaries= boundaries[:-1]
-# show histogram# show histogram
-#     plt.hist(subset, bins=20, alpha=0.5, label=f"Cluster {ii}")
-
-# plt.show()
 
 
 # deriving layers
@@ -76,34 +79,21 @@ for i in range(depth.shape[0]):
 for i, layer in enumerate(layers):
     plt.imsave("parallax/layer" + str(i) + ".png", layer)
 
-grabMask = np.average(layers[0],axis=2).flatten()
-grabMask[grabMask>0.0] = 1
-grabMask = grabMask.reshape(h,w)
-grabMask = grabMask.astype(np.uint8)
-bgModel = np.zeros((1,65), np.float64)
-fgModel = np.zeros((1,65), np.float64)
-cv.grabCut(img, grabMask, None, bgModel,
-	fgModel, iterCount=5, mode=cv.GC_INIT_WITH_MASK)
-mask2 = np.where((grabMask==2)|(grabMask==0),0,1).astype('uint8')
-
-# image after grab cut
-img_new = img*mask2[:,:,np.newaxis]
-
-fig, ax = plt.subplots(1,2)
-ax[0] = plt.imshow(mask2)
-ax[1] = plt.imshow(img_new)
-plt.show()
 # d1 = 30
 # depth = d1 + depth
 
 for i in range(1,10):
-    #calculate new coordinates
-    coords_new = np.zeros(coord_grid.shape) 
-    img_new = Image.new('RGB', (w, h)) 
     # calculate new depth map
     depth_new = depth-i
+    #calculate new coordinates
+    coords_new = np.zeros(coord_grid.shape) 
+    coords_new[:,:,0]= np.multiply(coord_grid[:,:,0],depth/depth_new)*h/2+h/2
+    coords_new[:,:,1]= np.multiply(coord_grid[:,:,1],depth/depth_new)*w/2+w/2
+    coords_new = coords_new.astype(np.float32)
+    img_new = Image.new('RGB', (w, h)) # np.zeros(img.shape).astype(np.uint8)
+    # img_new = ImageOps.invert(img_new)
     #generate new image
-    for j in range(len(layers)):
+    for j in range(len(layers)-1, -1,-1):
         depth_coef = depth/depth_new
         mean_depth = np.mean(depth_coef[((layers[j]!=0).sum(axis=-1)/3).astype(np.int)])
         print("mean depth: " + str(mean_depth))

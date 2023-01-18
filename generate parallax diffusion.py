@@ -20,7 +20,7 @@ coord_grid = np.stack(np.meshgrid(np.linspace(-1, 1,img.shape[0]), np.linspace(-
 # depth = np.zeros([img.shape[0], img.shape[1]])
 depth = np.load(dpfile)
 depth = depth[0:h,0:w]
-depth = np.abs(depth)
+depth = depth - np.max(depth)
 
 # remove background
 
@@ -97,13 +97,17 @@ plt.show()
 # depth = d1 + depth
 
 for i in range(1,10):
-    #calculate new coordinates
-    coords_new = np.zeros(coord_grid.shape) 
-    img_new = Image.new('RGB', (w, h)) 
     # calculate new depth map
     depth_new = depth-i
+    #calculate new coordinates
+    coords_new = np.zeros(coord_grid.shape) 
+    coords_new[:,:,0]= np.multiply(coord_grid[:,:,0],depth/depth_new)*h/2+h/2
+    coords_new[:,:,1]= np.multiply(coord_grid[:,:,1],depth/depth_new)*w/2+w/2
+    coords_new = coords_new.astype(np.float32)
+    img_new = Image.new('RGB', (w, h)) # np.zeros(img.shape).astype(np.uint8)
+    # img_new = ImageOps.invert(img_new)
     #generate new image
-    for j in range(len(layers)):
+    for j in range(len(layers)-1, -1,-1):
         depth_coef = depth/depth_new
         mean_depth = np.mean(depth_coef[((layers[j]!=0).sum(axis=-1)/3).astype(np.int)])
         print("mean depth: " + str(mean_depth))
